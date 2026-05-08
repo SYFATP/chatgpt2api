@@ -161,6 +161,21 @@ def create_router() -> APIRouter:
             "items": refresh_result.get("items", result.get("items", [])),
         }
 
+    @router.post("/api/accounts/import")
+    async def import_accounts(body: AccountCreateRequest, authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        tokens = [str(token or "").strip() for token in body.tokens if str(token or "").strip()]
+        if not tokens:
+            raise HTTPException(status_code=400, detail={"error": "tokens is required"})
+        result = account_service.add_accounts(tokens)
+        refresh_result = account_service.refresh_accounts(tokens)
+        return {
+            "added": result.get("added", 0),
+            "skipped": result.get("skipped", 0),
+            "refreshed": refresh_result.get("refreshed", 0),
+            "errors": refresh_result.get("errors", []),
+        }
+
     @router.delete("/api/accounts")
     async def delete_accounts(body: AccountDeleteRequest, authorization: str | None = Header(default=None)):
         require_admin(authorization)

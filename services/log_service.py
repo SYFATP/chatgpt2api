@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -19,6 +19,13 @@ from utils.helper import anthropic_sse_stream, sse_json_stream
 
 LOG_TYPE_CALL = "call"
 LOG_TYPE_ACCOUNT = "account"
+
+
+class LogPageResult(TypedDict):
+    items: list[dict[str, Any]]
+    total: int
+    page: int
+    page_size: int
 
 
 class LogService:
@@ -70,9 +77,23 @@ class LogService:
             file.write(self._serialize_item(item) + "\n")
 
     def list(self, type: str = "", start_date: str = "", end_date: str = "", limit: int = 200) -> list[dict[str, Any]]:
+        return self.list_page(type=type, start_date=start_date, end_date=end_date, page=1, page_size=limit)["items"]
+
+    def list_page(
+        self,
+        *,
+        type: str = "",
+        start_date: str = "",
+        end_date: str = "",
+        page: int = 1,
+        page_size: int = 10,
+    ) -> LogPageResult:
         if not self.path.exists():
-            return []
+            return {"items": [], "total": 0, "page": page, "page_size": page_size}
+        start_index = (page - 1) * page_size
+        end_index = start_index + page_size
         items: list[dict[str, Any]] = []
+        total = 0
         lines = self.path.read_text(encoding="utf-8").splitlines()
         for line_number in range(len(lines) - 1, -1, -1):
             item = self._parse_line(lines[line_number], line_number)
@@ -80,10 +101,10 @@ class LogService:
                 continue
             if not self._matches_filters(item, type=type, start_date=start_date, end_date=end_date):
                 continue
-            items.append(item)
-            if len(items) >= limit:
-                break
-        return items
+            if start_index <= total < end_index:
+                items.append(item)
+            total += 1
+        return {"items": items, "total": total, "page": page, "page_size": page_size}
 
     def delete(self, ids: list[str]) -> dict[str, int]:
         target_ids = {str(item or "").strip() for item in ids if str(item or "").strip()}

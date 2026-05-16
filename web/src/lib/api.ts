@@ -175,6 +175,13 @@ export type SystemLog = {
   [key: string]: unknown;
 };
 
+export type SystemLogListResponse = {
+  items: SystemLog[];
+  total: number;
+  page: number;
+  page_size: number;
+};
+
 export type ImageResponse = {
   created: number;
   data: Array<{ b64_json?: string; url?: string; revised_prompt?: string }>;
@@ -522,12 +529,21 @@ export async function deleteImageTag(tag: string) {
   });
 }
 
-export async function fetchSystemLogs(filters: { type?: string; start_date?: string; end_date?: string }) {
-  const params = new URLSearchParams();
-  if (filters.type) params.set("type", filters.type);
-  if (filters.start_date) params.set("start_date", filters.start_date);
-  if (filters.end_date) params.set("end_date", filters.end_date);
-  return httpRequest<{ items: SystemLog[] }>(`/api/logs${params.toString() ? `?${params.toString()}` : ""}`);
+export async function fetchSystemLogs(params?: {
+  type?: string;
+  start_date?: string;
+  end_date?: string;
+  page?: number;
+  pageSize?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params?.type) searchParams.set("type", params.type);
+  if (params?.start_date) searchParams.set("start_date", params.start_date);
+  if (params?.end_date) searchParams.set("end_date", params.end_date);
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.pageSize) searchParams.set("page_size", String(params.pageSize));
+  const query = searchParams.toString();
+  return httpRequest<SystemLogListResponse>(query ? `/api/logs?${query}` : "/api/logs");
 }
 
 export async function deleteSystemLogs(ids: string[]) {

@@ -1,14 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import { Github } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 
 import webConfig from "@/constants/common-env";
-import { getValidatedAuthSession } from "@/lib/auth-session";
+import { useAuthState } from "@/components/auth-provider";
 import { cn } from "@/lib/utils";
-import { clearStoredAuthSession, type StoredAuthSession } from "@/store/auth";
 
 const adminNavItems = [
   { href: "/image", label: "画图" },
@@ -24,39 +22,14 @@ const userNavItems = [{ href: "/image", label: "画图" }];
 export function TopNav() {
   const pathname = usePathname();
   const router = useRouter();
-  const [session, setSession] = useState<StoredAuthSession | null | undefined>(undefined);
-
-  useEffect(() => {
-    let active = true;
-
-    const load = async () => {
-      if (pathname === "/login") {
-        if (!active) {
-          return;
-        }
-        setSession(null);
-        return;
-      }
-
-      const storedSession = await getValidatedAuthSession();
-      if (!active) {
-        return;
-      }
-      setSession(storedSession);
-    };
-
-    void load();
-    return () => {
-      active = false;
-    };
-  }, [pathname]);
+  const { isLoading, logout, session } = useAuthState();
 
   const handleLogout = async () => {
-    await clearStoredAuthSession();
+    await logout();
     router.replace("/login");
   };
 
-  if (pathname === "/login" || session === undefined || !session) {
+  if (pathname === "/login" || isLoading || !session) {
     return null;
   }
 

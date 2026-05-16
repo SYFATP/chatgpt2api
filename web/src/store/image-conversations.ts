@@ -219,15 +219,9 @@ export async function listImageConversations(): Promise<ImageConversation[]> {
 
 export async function saveImageConversations(conversations: ImageConversation[]): Promise<void> {
   await queueImageConversationWrite(async () => {
-    const items = await readStoredImageConversations();
-    const conversationMap = new Map(items.map((item) => [item.id, item]));
-    for (const conversation of conversations.map(normalizeConversation)) {
-      const current = conversationMap.get(conversation.id);
-      conversationMap.set(conversation.id, current ? pickLatestConversation(current, conversation) : conversation);
-    }
     await imageConversationStorage.setItem(
       IMAGE_CONVERSATIONS_KEY,
-      sortImageConversations([...conversationMap.values()]),
+      sortImageConversations(conversations.map(normalizeConversation)),
     );
   });
 }

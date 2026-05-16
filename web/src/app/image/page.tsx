@@ -534,18 +534,20 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
   const updateConversation = useCallback(
     async (
       conversationId: string,
-      updater: (current: ImageConversation | null) => ImageConversation,
+      updater: (current: ImageConversation | null) => ImageConversation | null,
       options: { persist?: boolean } = {},
     ) => {
       const current = conversationsRef.current.find((item) => item.id === conversationId) ?? null;
       const nextConversation = updater(current);
-      const nextConversations = sortImageConversations([
-        nextConversation,
-        ...conversationsRef.current.filter((item) => item.id !== conversationId),
-      ]);
+      const nextConversations = nextConversation
+        ? sortImageConversations([
+            nextConversation,
+            ...conversationsRef.current.filter((item) => item.id !== conversationId),
+          ])
+        : conversationsRef.current.filter((item) => item.id !== conversationId);
       conversationsRef.current = nextConversations;
       setConversations(nextConversations);
-      if (options.persist !== false) {
+      if (options.persist !== false && nextConversation) {
         await saveImageConversation(nextConversation);
       }
     },
@@ -833,8 +835,11 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
         const taskMap = new Map(tasks.map((task) => [task.id, task]));
         await updateConversation(conversationId, (current) => {
           const conversation = current ?? snapshot;
+          if (!conversation) {
+            return null;
+          }
           const turns = conversation.turns.map((turn) => {
-            if (turn.id !== activeTurn.id) {
+            if (turn.id !== activeTurn.id || turn.resultsDeleted) {
               return turn;
             }
             const images = turn.images.map((image) => {
@@ -860,11 +865,14 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
       try {
         await updateConversation(conversationId, (current) => {
           const conversation = current ?? snapshot;
+          if (!conversation) {
+            return null;
+          }
           return {
             ...conversation,
             updatedAt: new Date().toISOString(),
             turns: conversation.turns.map((turn) =>
-              turn.id === activeTurn.id
+              turn.id === activeTurn.id && !turn.resultsDeleted
                 ? {
                     ...turn,
                     status: "generating",
@@ -912,7 +920,7 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
           if (taskList.items.length > 0) {
             await applyTasks(taskList.items);
           }
-          if (taskList.missing_ids.length > 0 && latestTurn) {
+          if (taskList.missing_ids.length > 0 && latestTurn && !latestTurn.resultsDeleted) {
             const missingImages = latestTurn.images.filter(
               (image) => image.status === "loading" && image.taskId && taskList.missing_ids.includes(image.taskId),
             );
@@ -934,6 +942,9 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
         const message = error instanceof Error ? error.message : "生成图片失败";
         await updateConversation(conversationId, (current) => {
           const conversation = current ?? snapshot;
+          if (!conversation) {
+            return null;
+          }
           return {
             ...conversation,
             updatedAt: new Date().toISOString(),

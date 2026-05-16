@@ -209,6 +209,11 @@ type ImageTaskListResponse = {
   missing_ids: string[];
 };
 
+type ImageTaskDeleteResultsResponse = {
+  updated_ids: string[];
+  missing_ids: string[];
+};
+
 export type LoginResponse = {
   ok: boolean;
   version: string;
@@ -436,6 +441,13 @@ export async function fetchImageTasks(ids: string[]) {
     params.set("ids", ids.join(","));
   }
   return httpRequest<ImageTaskListResponse>(`/api/image-tasks${params.toString() ? `?${params.toString()}` : ""}`);
+}
+
+export async function deleteImageTaskResults(taskIds: string[]) {
+  return httpRequest<ImageTaskDeleteResultsResponse>("/api/image-tasks/delete-results", {
+    method: "POST",
+    body: { task_ids: taskIds },
+  });
 }
 
 export async function fetchSettingsConfig() {

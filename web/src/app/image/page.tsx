@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import {
   createImageEditTask,
   createImageGenerationTask,
+  deleteImageTaskResults,
   fetchAccounts,
   fetchImageTasks,
   type Account,
@@ -599,6 +600,18 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
       return;
     }
 
+    const targetTurn = conversation.turns.find((turn) => turn.id === turnId) ?? null;
+    const resultTaskIds =
+      part === "results"
+        ? Array.from(
+            new Set(
+              (targetTurn?.images || [])
+                .map((image) => image.taskId)
+                .filter((taskId): taskId is string => typeof taskId === "string" && taskId.length > 0),
+            ),
+          )
+        : [];
+
     const turns = conversation.turns
       .map((turn) => {
         if (turn.id !== turnId) {
@@ -620,6 +633,14 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
       .filter((turn): turn is ImageTurn => Boolean(turn));
 
     if (turns.length === 0) {
+      if (resultTaskIds.length > 0) {
+        try {
+          await deleteImageTaskResults(resultTaskIds);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "同步删除日志失败";
+          toast.error(message);
+        }
+      }
       await handleDeleteConversation(conversationId);
       return;
     }
@@ -630,6 +651,14 @@ function ImagePageContent({ isAdmin }: { isAdmin: boolean }) {
       turns,
     };
     await persistConversation(nextConversation);
+    if (resultTaskIds.length > 0) {
+      try {
+        await deleteImageTaskResults(resultTaskIds);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "同步删除日志失败";
+        toast.error(message);
+      }
+    }
   };
 
   const handleClearHistory = async () => {

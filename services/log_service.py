@@ -65,16 +65,50 @@ class LogService:
             return False
         return True
 
-    def add(self, type: str, summary: str = "", detail: dict[str, Any] | None = None, **data: Any) -> None:
-        item = {
+    @staticmethod
+    def _build_item(type: str, summary: str = "", detail: dict[str, Any] | None = None, **data: Any) -> dict[str, Any]:
+        return {
             "id": uuid4().hex,
             "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "type": type,
             "summary": summary,
             "detail": detail or data,
         }
+
+    def add(self, type: str, summary: str = "", detail: dict[str, Any] | None = None, **data: Any) -> str:
+        item = self._build_item(type, summary, detail, **data)
         with self.path.open("a", encoding="utf-8") as file:
             file.write(self._serialize_item(item) + "\n")
+        return str(item["id"])
+
+    def update(self, log_id: str, *, summary: str | None = None, detail: dict[str, Any] | None = None) -> bool:
+        target_id = str(log_id or "").strip()
+        if not self.path.exists() or not target_id:
+            return False
+        lines = self.path.read_text(encoding="utf-8").splitlines()
+        next_lines: list[str] = []
+        updated = False
+        for line_number, raw_line in enumerate(lines):
+            item = self._parse_line(raw_line, line_number)
+            if item is None:
+                next_lines.append(raw_line)
+                continue
+            if str(item.get("id") or "") != target_id:
+                next_lines.append(self._serialize_item(item))
+                continue
+            if summary is not None:
+                item["summary"] = summary
+            if detail is not None:
+                item["detail"] = detail
+            next_lines.append(self._serialize_item(item))
+            updated = True
+        if not updated:
+            return False
+        content = "\n".join(next_lines)
+        if content:
+            content += "\n"
+        self.path.write_text(content, encoding="utf-8")
+        return True
 
     def list(self, type: str = "", start_date: str = "", end_date: str = "", limit: int = 200) -> list[dict[str, Any]]:
         return self.list_page(type=type, start_date=start_date, end_date=end_date, page=1, page_size=limit)["items"]

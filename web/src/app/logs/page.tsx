@@ -44,9 +44,24 @@ function getUrls(item: SystemLog | null) {
 
 function getStatus(item: SystemLog) {
   const status = item.detail?.status;
+  if (status === "queued") return "排队中";
+  if (status === "running") return "执行中";
+  if (status === "deleted") return "已删除";
+  if (status === "deleted/running") return "删除/执行中";
+  if (status === "deleted/success") return "删除/成功";
+  if (status === "deleted/failed") return "删除/失败";
   if (status === "success") return "成功";
   if (status === "failed") return "失败";
+  if (status === "error") return "失败";
   return "-";
+}
+
+function getStatusVariant(item: SystemLog): "success" | "danger" | "warning" | "secondary" {
+  const status = item.detail?.status;
+  if (status === "success" || status === "deleted/success") return "success";
+  if (status === "failed" || status === "error" || status === "deleted/failed") return "danger";
+  if (status === "queued" || status === "running" || status === "deleted/running") return "warning";
+  return "secondary";
 }
 
 function LogsContent() {
@@ -224,7 +239,7 @@ function LogsContent() {
                       {isCallLog ? <TableCell>{formatDuration(item)}</TableCell> : null}
                       {isCallLog ? (
                         <TableCell>
-                          <Badge variant={item.detail?.status === "failed" ? "danger" : "success"} className="rounded-md">
+                          <Badge variant={getStatusVariant(item)} className="rounded-md">
                             {getStatus(item)}
                           </Badge>
                         </TableCell>

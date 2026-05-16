@@ -17,6 +17,10 @@ class ImageGenerationTaskRequest(BaseModel):
     size: str | None = None
 
 
+class ImageTaskDeleteResultsRequest(BaseModel):
+    task_ids: list[str] = Field(default_factory=list)
+
+
 def _parse_task_ids(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
@@ -39,6 +43,14 @@ def create_router() -> APIRouter:
     ):
         identity = require_identity(authorization)
         return await run_in_threadpool(image_task_service.list_tasks, identity, _parse_task_ids(ids))
+
+    @router.post("/api/image-tasks/delete-results")
+    async def delete_image_task_results(
+        body: ImageTaskDeleteResultsRequest,
+        authorization: str | None = Header(default=None),
+    ):
+        identity = require_identity(authorization)
+        return await run_in_threadpool(image_task_service.mark_results_deleted, identity, body.task_ids)
 
     @router.post("/api/image-tasks/generations")
     async def create_generation_task(

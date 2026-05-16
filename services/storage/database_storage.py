@@ -63,6 +63,41 @@ class DatabaseStorageBackend(StorageBackend):
         """保存账号数据到数据库"""
         self._save_rows(AccountModel, accounts, "access_token")
 
+    def save_account(self, account: dict[str, Any]) -> bool:
+        access_token = str(account.get("access_token") or "").strip()
+        if not access_token:
+            return False
+        session = self.Session()
+        try:
+            row = session.query(AccountModel).filter_by(access_token=access_token).one_or_none()
+            payload = json.dumps(account, ensure_ascii=False)
+            if row is None:
+                session.add(AccountModel(access_token=access_token, data=payload))
+            else:
+                row.data = payload
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+
+    def delete_accounts_by_tokens(self, access_tokens: list[str]) -> bool:
+        tokens = [str(token or "").strip() for token in access_tokens if str(token or "").strip()]
+        if not tokens:
+            return False
+        session = self.Session()
+        try:
+            session.query(AccountModel).filter(AccountModel.access_token.in_(tokens)).delete(synchronize_session=False)
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+
     def load_auth_keys(self) -> list[dict[str, Any]]:
         """从数据库加载鉴权密钥数据"""
         return self._load_rows(AuthKeyModel)

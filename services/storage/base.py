@@ -17,6 +17,14 @@ class StorageBackend(ABC):
         """保存所有账号数据"""
         pass
 
+    def save_account(self, account: dict[str, Any]) -> bool:
+        """保存单个账号，返回是否已走增量路径"""
+        return False
+
+    def delete_accounts_by_tokens(self, access_tokens: list[str]) -> bool:
+        """按 token 删除账号，返回是否已走增量路径"""
+        return False
+
     @abstractmethod
     def load_auth_keys(self) -> list[dict[str, Any]]:
         """加载所有鉴权密钥数据"""

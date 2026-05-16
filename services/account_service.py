@@ -183,6 +183,79 @@ class AccountService:
         with self._lock:
             return [dict(item) for item in self._accounts.values()]
 
+    @staticmethod
+    def _is_unlimited_image_quota_account(account: dict[str, Any]) -> bool:
+        account_type = str(account.get("type") or "").strip().lower()
+        return account_type in {"pro", "prolite"}
+
+    @classmethod
+    def _format_quota_summary(cls, accounts: list[dict[str, Any]]) -> int | str:
+        available_accounts = [account for account in accounts if account.get("status") == "正常"]
+        if any(cls._is_unlimited_image_quota_account(account) for account in available_accounts):
+            return "∞"
+        if any(bool(account.get("image_quota_unknown")) for account in available_accounts):
+            return "未知"
+        return sum(max(0, int(account.get("quota") or 0)) for account in available_accounts)
+
+    def list_accounts_page(
+        self,
+        page: int = 1,
+        page_size: int = 10,
+        search: str = "",
+        status: str = "all",
+        account_type: str = "all",
+    ) -> dict[str, Any]:
+        safe_page = max(1, int(page or 1))
+        safe_page_size = max(1, min(100, int(page_size or 10)))
+        normalized_query = str(search or "").strip().lower()
+        normalized_status = str(status or "all").strip() or "all"
+        normalized_type = str(account_type or "all").strip() or "all"
+
+        with self._lock:
+            accounts = [dict(item) for item in self._accounts.values()]
+
+        filtered_accounts = [
+            account
+            for account in accounts
+            if (
+                (not normalized_query or str(account.get("email") or "").lower().find(normalized_query) >= 0)
+                and (normalized_status == "all" or str(account.get("status") or "") == normalized_status)
+                and (
+                    normalized_type == "all"
+                    or str(account.get("type") or "free") == normalized_type
+                    or str(account.get("type") or "Free") == normalized_type
+                )
+            )
+        ]
+        total = len(filtered_accounts)
+        start_index = (safe_page - 1) * safe_page_size
+        end_index = start_index + safe_page_size
+        items = filtered_accounts[start_index:end_index]
+        stats = {
+            "total": len(accounts),
+            "active": sum(1 for item in accounts if item.get("status") == "正常"),
+            "limited": sum(1 for item in accounts if item.get("status") == "限流"),
+            "abnormal": sum(1 for item in accounts if item.get("status") == "异常"),
+            "disabled": sum(1 for item in accounts if item.get("status") == "禁用"),
+            "quota": self._format_quota_summary(accounts),
+        }
+        type_options = sorted({str(item.get("type") or "free") for item in accounts})
+        abnormal_tokens = [
+            str(item.get("access_token") or "")
+            for item in accounts
+            if item.get("status") == "异常" and str(item.get("access_token") or "")
+        ]
+        return {
+            "items": items,
+            "total": total,
+            "page": safe_page,
+            "page_size": safe_page_size,
+            "stats": stats,
+            "type_options": type_options,
+            "abnormal_tokens": abnormal_tokens,
+            "all_tokens": [str(item.get("access_token") or "") for item in accounts if str(item.get("access_token") or "")],
+        }
+
     def list_limited_tokens(self) -> list[str]:
         with self._lock:
             return [
@@ -225,7 +298,7 @@ class AccountService:
     def delete_accounts(self, tokens: list[str]) -> dict:
         target_set = set(token for token in tokens if token)
         if not target_set:
-            return {"removed": 0, "items": self.list_accounts()}
+            return {"removed": 0}
         with self._lock:
             removed = sum(self._accounts.pop(token, None) is not None for token in target_set)
             for token in target_set:
@@ -235,10 +308,10 @@ class AccountService:
                     self._index %= len(self._accounts)
                 else:
                     self._index = 0
-                self._save_accounts()
+                if not self.storage.delete_accounts_by_tokens(list(target_set)):
+                    self._save_accounts()
                 log_service.add(LOG_TYPE_ACCOUNT, f"删除 {removed} 个账号", {"removed": removed})
-            items = [dict(item) for item in self._accounts.values()]
-        return {"removed": removed, "items": items}
+        return {"removed": removed}
 
     def update_account(self, access_token: str, updates: dict) -> dict | None:
         if not access_token:
@@ -252,11 +325,13 @@ class AccountService:
                 return None
             if account.get("status") == "限流" and config.auto_remove_rate_limited_accounts:
                 self._accounts.pop(access_token, None)
-                self._save_accounts()
+                if not self.storage.delete_accounts_by_tokens([access_token]):
+                    self._save_accounts()
                 log_service.add(LOG_TYPE_ACCOUNT, "自动移除限流账号", {"token": anonymize_token(access_token)})
                 return None
             self._accounts[access_token] = account
-            self._save_accounts()
+            if not self.storage.save_account(account):
+                self._save_accounts()
             log_service.add(LOG_TYPE_ACCOUNT, "更新账号",
                             {"token": anonymize_token(access_token), "status": account.get("status")})
             return dict(account)
@@ -312,7 +387,7 @@ class AccountService:
     def refresh_accounts(self, access_tokens: list[str]) -> dict[str, Any]:
         access_tokens = list(dict.fromkeys(token for token in access_tokens if token))
         if not access_tokens:
-            return {"refreshed": 0, "errors": [], "items": self.list_accounts()}
+            return {"refreshed": 0, "errors": []}
 
         refreshed = 0
         errors = []
@@ -335,7 +410,6 @@ class AccountService:
         return {
             "refreshed": refreshed,
             "errors": errors,
-            "items": self.list_accounts(),
         }
 
 

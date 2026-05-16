@@ -25,28 +25,42 @@ export type Account = {
   last_used_at?: string | null;
 };
 
+type AccountListStats = {
+  total: number;
+  active: number;
+  limited: number;
+  abnormal: number;
+  disabled: number;
+  quota: number | string;
+};
+
 type AccountListResponse = {
   items: Account[];
+  total: number;
+  page: number;
+  page_size: number;
+  stats: AccountListStats;
+  type_options: string[];
+  abnormal_tokens: string[];
+  all_tokens: string[];
 };
 
 type AccountMutationResponse = {
-  items: Account[];
+  items?: Account[];
   added?: number;
   skipped?: number;
   removed?: number;
   refreshed?: number;
-  errors?: Array<{ access_token: string; error: string }>;
+  errors?: Array<{ token: string; error: string }>;
 };
 
 type AccountRefreshResponse = {
-  items: Account[];
   refreshed: number;
-  errors: Array<{ access_token: string; error: string }>;
+  errors: Array<{ token: string; error: string }>;
 };
 
 type AccountUpdateResponse = {
   item: Account;
-  items: Account[];
 };
 
 export type SettingsConfig = {
@@ -250,8 +264,31 @@ export async function login(authKey: string) {
   });
 }
 
-export async function fetchAccounts() {
-  return httpRequest<AccountListResponse>("/api/accounts");
+export async function fetchAccounts(params?: {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  status?: AccountStatus | "all";
+  type?: string;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params?.page) {
+    searchParams.set("page", String(params.page));
+  }
+  if (params?.pageSize) {
+    searchParams.set("page_size", String(params.pageSize));
+  }
+  if (params?.search) {
+    searchParams.set("search", params.search);
+  }
+  if (params?.status && params.status !== "all") {
+    searchParams.set("status", params.status);
+  }
+  if (params?.type && params.type !== "all") {
+    searchParams.set("type", params.type);
+  }
+  const query = searchParams.toString();
+  return httpRequest<AccountListResponse>(query ? `/api/accounts?${query}` : "/api/accounts");
 }
 
 export async function createAccounts(tokens: string[]) {

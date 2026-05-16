@@ -39,9 +39,15 @@ type AccountListResponse = {
   total: number;
   page: number;
   page_size: number;
+};
+
+export type AccountSummaryResponse = {
   stats: AccountListStats;
   type_options: string[];
-  abnormal_tokens: string[];
+};
+
+export type AbnormalAccountsResponse = {
+  tokens: string[];
 };
 
 type AccountMutationResponse = {
@@ -268,6 +274,14 @@ export async function login(authKey: string) {
     },
     redirectOnUnauthorized: false,
   });
+}
+
+export async function fetchAccountSummary() {
+  return httpRequest<AccountSummaryResponse>("/api/accounts/summary");
+}
+
+export async function fetchAbnormalAccounts() {
+  return httpRequest<AbnormalAccountsResponse>("/api/accounts/abnormal");
 }
 
 export async function fetchAccounts(params?: {

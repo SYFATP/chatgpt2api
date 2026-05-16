@@ -34,6 +34,15 @@ class UserKeyUpdateRequest(BaseModel):
     key: str | None = None
 
 
+class AccountSummaryResponse(BaseModel):
+    stats: dict
+    type_options: list[str]
+
+
+class AbnormalAccountsResponse(BaseModel):
+    tokens: list[str]
+
+
 class AccountCreateRequest(BaseModel):
     tokens: list[str] = Field(default_factory=list)
 
@@ -140,6 +149,16 @@ def create_router() -> APIRouter:
         if not auth_service.delete_key(key_id, role="user"):
             raise HTTPException(status_code=404, detail={"error": "这条用户密钥不存在，可能已经被删除"})
         return {"items": auth_service.list_keys(role="user")}
+
+    @router.get("/api/accounts/summary")
+    async def get_account_summary(authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        return account_service.list_account_summary()
+
+    @router.get("/api/accounts/abnormal")
+    async def get_abnormal_accounts(authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        return {"tokens": account_service.list_abnormal_tokens()}
 
     @router.get("/api/accounts")
     async def get_accounts(

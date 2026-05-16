@@ -42,7 +42,9 @@ import {
 } from "@/components/ui/select";
 import {
   deleteAccounts,
+  fetchAbnormalAccounts,
   fetchAccounts,
+  fetchAccountSummary,
   refreshAccounts,
   updateAccount,
   type Account,
@@ -189,12 +191,34 @@ function AccountsPageContent() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [editStatus, setEditStatus] = useState<AccountStatus>("正常");
   const [isLoading, setIsLoading] = useState(true);
+  const [isSummaryLoading, setIsSummaryLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
 
   const numericPageSize = Number(pageSize);
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+
+  const loadAccountSummary = async () => {
+    setIsSummaryLoading(true);
+    try {
+      const [summaryData, abnormalData] = await Promise.all([
+        fetchAccountSummary(),
+        fetchAbnormalAccounts(),
+      ]);
+      setSummary(summaryData.stats);
+      setAccountTypeOptions([
+        { label: "全部类型", value: "all" },
+        ...summaryData.type_options.map((type) => ({ label: type, value: type })),
+      ]);
+      setAbnormalTokens(abnormalData.tokens);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "加载账户汇总失败";
+      toast.error(message);
+    } finally {
+      setIsSummaryLoading(false);
+    }
+  };
 
   const loadAccounts = async (silent = false, nextPage = page, nextQuery = debouncedQuery) => {
     if (!silent) {
@@ -210,13 +234,7 @@ function AccountsPageContent() {
       });
       setAccounts(data.items);
       setTotal(data.total);
-      setSummary(data.stats);
       setPage(data.page);
-      setAccountTypeOptions([
-        { label: "全部类型", value: "all" },
-        ...data.type_options.map((type) => ({ label: type, value: type })),
-      ]);
-      setAbnormalTokens(data.abnormal_tokens);
       setSelectedIds((prev) => prev.filter((id) => data.items.some((item) => item.access_token === id)));
     } catch (error) {
       const message = error instanceof Error ? error.message : "加载账户失败";
@@ -233,7 +251,10 @@ function AccountsPageContent() {
       return;
     }
     didLoadRef.current = true;
-    void loadAccounts(false, 1, "");
+    void Promise.all([
+      loadAccounts(false, 1, ""),
+      loadAccountSummary(),
+    ]);
   }, []);
 
   useEffect(() => {
@@ -296,6 +317,7 @@ function AccountsPageContent() {
       const nextPage = Math.min(fallbackPage, Math.max(1, Math.ceil(nextTotal / numericPageSize)));
       setSelectedIds((prev) => prev.filter((id) => !tokens.includes(id)));
       await loadAccounts(true, nextPage);
+      void loadAccountSummary();
       toast.success(`删除 ${data.removed ?? 0} 个账户`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "删除账户失败";
@@ -314,7 +336,10 @@ function AccountsPageContent() {
     setIsRefreshing(true);
     try {
       const data = await refreshAccounts(accessTokens);
-      await loadAccounts(true);
+      await Promise.all([
+        loadAccounts(true),
+        loadAccountSummary(),
+      ]);
       if (data.errors.length > 0) {
         const firstError = data.errors[0]?.error;
         toast.error(
@@ -335,7 +360,10 @@ function AccountsPageContent() {
     setIsRefreshing(true);
     try {
       const data = await refreshAccounts([]);
-      await loadAccounts(true);
+      await Promise.all([
+        loadAccounts(true),
+        loadAccountSummary(),
+      ]);
       if (data.errors.length > 0) {
         const firstError = data.errors[0]?.error;
         toast.error(
@@ -367,7 +395,10 @@ function AccountsPageContent() {
       await updateAccount(editingAccount.access_token, {
         status: editStatus,
       });
-      await loadAccounts(true);
+      await Promise.all([
+        loadAccounts(true),
+        loadAccountSummary(),
+      ]);
       setEditingAccount(null);
       toast.success("账号信息已更新");
     } catch (error) {
@@ -420,7 +451,10 @@ function AccountsPageContent() {
             onImported={() => {
               setSelectedIds([]);
               setPage(1);
-              void loadAccounts(false, 1, debouncedQuery);
+              void Promise.all([
+                loadAccounts(false, 1, debouncedQuery),
+                loadAccountSummary(),
+              ]);
             }}
           />
           <Button
@@ -493,12 +527,16 @@ function AccountsPageContent() {
                 <CardContent className="p-4">
                   <div className="mb-4 flex items-start justify-between">
                     <span className="text-xs font-medium text-stone-400">{item.label}</span>
-                    <Icon className="size-4 text-stone-400" />
+                    <Icon className={cn("size-4 text-stone-400", isSummaryLoading ? "animate-pulse" : "")} />
                   </div>
                   <div className={cn("text-[1.75rem] font-semibold tracking-tight", item.color)}>
-                    <span className={typeof value === "number" ? "" : "text-[1.1rem]"}>
-                      {typeof value === "number" ? formatCompact(value) : value}
-                    </span>
+                    {isSummaryLoading ? (
+                      <span className="text-base text-stone-300">--</span>
+                    ) : (
+                      <span className={typeof value === "number" ? "" : "text-[1.1rem]"}>
+                        {typeof value === "number" ? formatCompact(value) : value}
+                      </span>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -604,7 +642,7 @@ function AccountsPageContent() {
                   variant="ghost"
                   className="h-8 rounded-lg px-3 text-rose-500 hover:bg-rose-50 hover:text-rose-600"
                   onClick={() => void handleDeleteTokens(abnormalTokens)}
-                  disabled={abnormalTokens.length === 0 || isDeleting}
+                  disabled={isSummaryLoading || abnormalTokens.length === 0 || isDeleting}
                 >
                   {isDeleting ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
                   移除异常账号

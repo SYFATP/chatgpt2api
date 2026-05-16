@@ -197,6 +197,50 @@ class AccountService:
             return "未知"
         return sum(max(0, int(account.get("quota") or 0)) for account in available_accounts)
 
+    def list_account_summary(self) -> dict[str, Any]:
+        with self._lock:
+            stats = {
+                "total": len(self._accounts),
+                "active": 0,
+                "limited": 0,
+                "abnormal": 0,
+                "disabled": 0,
+                "quota": 0,
+            }
+            type_options: set[str] = set()
+            available_accounts: list[dict[str, Any]] = []
+
+            for item in self._accounts.values():
+                status_value = str(item.get("status") or "")
+                if status_value == "正常":
+                    stats["active"] += 1
+                    available_accounts.append(item)
+                elif status_value == "限流":
+                    stats["limited"] += 1
+                elif status_value == "异常":
+                    stats["abnormal"] += 1
+                elif status_value == "禁用":
+                    stats["disabled"] += 1
+
+                type_options.add(str(item.get("type") or "free"))
+
+        stats["quota"] = self._format_quota_summary(available_accounts)
+        return {
+            "stats": stats,
+            "type_options": sorted(type_options),
+        }
+
+    def list_abnormal_tokens(self) -> list[str]:
+        with self._lock:
+            return [
+                token
+                for token, item in self._accounts.items()
+                if item.get("status") == "异常"
+            ]
+
+    def delete_abnormal_accounts(self) -> dict[str, Any]:
+        return self.delete_accounts(self.list_abnormal_tokens())
+
     def list_accounts_page(
         self,
         page: int = 1,
@@ -223,40 +267,12 @@ class AccountService:
             )
 
         with self._lock:
-            stats = {
-                "total": len(self._accounts),
-                "active": 0,
-                "limited": 0,
-                "abnormal": 0,
-                "disabled": 0,
-                "quota": 0,
-            }
-            type_options: set[str] = set()
-            abnormal_tokens: list[str] = []
-            available_accounts: list[dict[str, Any]] = []
             matched_accounts: list[dict[str, Any]] = []
 
             for item in self._accounts.values():
-                status_value = str(item.get("status") or "")
-                if status_value == "正常":
-                    stats["active"] += 1
-                    available_accounts.append(item)
-                elif status_value == "限流":
-                    stats["limited"] += 1
-                elif status_value == "异常":
-                    stats["abnormal"] += 1
-                    token = str(item.get("access_token") or "")
-                    if token:
-                        abnormal_tokens.append(token)
-                elif status_value == "禁用":
-                    stats["disabled"] += 1
-
-                type_options.add(str(item.get("type") or "free"))
-
                 if matches(item):
                     matched_accounts.append(dict(item))
 
-        stats["quota"] = self._format_quota_summary(available_accounts)
         total = len(matched_accounts)
         start_index = (safe_page - 1) * safe_page_size
         end_index = start_index + safe_page_size
@@ -266,10 +282,8 @@ class AccountService:
             "total": total,
             "page": safe_page,
             "page_size": safe_page_size,
-            "stats": stats,
-            "type_options": sorted(type_options),
-            "abnormal_tokens": abnormal_tokens,
         }
+
 
     def list_limited_tokens(self) -> list[str]:
         with self._lock:

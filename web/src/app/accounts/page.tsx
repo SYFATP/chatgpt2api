@@ -186,13 +186,15 @@ function AccountsPageContent() {
     { label: "全部类型", value: "all" },
   ]);
   const [abnormalTokens, setAbnormalTokens] = useState<string[]>([]);
-  const [allTokens, setAllTokens] = useState<string[]>([]);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [editStatus, setEditStatus] = useState<AccountStatus>("正常");
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+
+  const numericPageSize = Number(pageSize);
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
   const loadAccounts = async (silent = false, nextPage = page, nextQuery = debouncedQuery) => {
     if (!silent) {
@@ -201,7 +203,7 @@ function AccountsPageContent() {
     try {
       const data = await fetchAccounts({
         page: nextPage,
-        pageSize: Number(pageSize),
+        pageSize: numericPageSize,
         search: nextQuery.trim(),
         status: statusFilter,
         type: typeFilter,
@@ -215,7 +217,6 @@ function AccountsPageContent() {
         ...data.type_options.map((type) => ({ label: type, value: type })),
       ]);
       setAbnormalTokens(data.abnormal_tokens);
-      setAllTokens(data.all_tokens);
       setSelectedIds((prev) => prev.filter((id) => data.items.some((item) => item.access_token === id)));
     } catch (error) {
       const message = error instanceof Error ? error.message : "加载账户失败";
@@ -247,8 +248,8 @@ function AccountsPageContent() {
       clearTimeout(searchTimeoutRef.current);
     }
     searchTimeoutRef.current = setTimeout(() => {
-      setDebouncedQuery(query);
-    }, 250);
+      setDebouncedQuery((current) => (current === query ? current : query));
+    }, 400);
     return () => {
       if (searchTimeoutRef.current) {
         clearTimeout(searchTimeoutRef.current);
@@ -256,17 +257,15 @@ function AccountsPageContent() {
     };
   }, [query]);
 
-  const pageCount = Math.max(1, Math.ceil(total / Number(pageSize)));
+  const pageCount = Math.max(1, Math.ceil(total / numericPageSize));
   const safePage = Math.min(page, pageCount);
-  const startIndex = total === 0 ? 0 : (safePage - 1) * Number(pageSize);
+  const startIndex = total === 0 ? 0 : (safePage - 1) * numericPageSize;
   const currentRows = accounts;
-  const allCurrentSelected =
-    currentRows.length > 0 && currentRows.every((row) => selectedIds.includes(row.access_token));
+  const allCurrentSelected = currentRows.length > 0 && currentRows.every((row) => selectedSet.has(row.access_token));
 
   const selectedTokens = useMemo(() => {
-    const selectedSet = new Set(selectedIds);
     return currentRows.filter((item) => selectedSet.has(item.access_token)).map((item) => item.access_token);
-  }, [currentRows, selectedIds]);
+  }, [currentRows, selectedSet]);
 
   const paginationItems = useMemo(() => {
     const items: (number | "...")[] = [];
@@ -291,8 +290,12 @@ function AccountsPageContent() {
     setIsDeleting(true);
     try {
       const data = await deleteAccounts(tokens);
+      const nextTotal = Math.max(0, total - (data.removed ?? 0));
+      const remainingRows = currentRows.filter((account) => !tokens.includes(account.access_token)).length;
+      const fallbackPage = remainingRows === 0 && safePage > 1 ? safePage - 1 : safePage;
+      const nextPage = Math.min(fallbackPage, Math.max(1, Math.ceil(nextTotal / numericPageSize)));
       setSelectedIds((prev) => prev.filter((id) => !tokens.includes(id)));
-      await loadAccounts(true);
+      await loadAccounts(true, nextPage);
       toast.success(`删除 ${data.removed ?? 0} 个账户`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "删除账户失败";
@@ -311,6 +314,27 @@ function AccountsPageContent() {
     setIsRefreshing(true);
     try {
       const data = await refreshAccounts(accessTokens);
+      await loadAccounts(true);
+      if (data.errors.length > 0) {
+        const firstError = data.errors[0]?.error;
+        toast.error(
+          `刷新成功 ${data.refreshed} 个，失败 ${data.errors.length} 个${firstError ? `，首个错误：${firstError}` : ""}`,
+        );
+      } else {
+        toast.success(`刷新成功 ${data.refreshed} 个账户`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "刷新账户失败";
+      toast.error(message);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const handleRefreshAllAccounts = async () => {
+    setIsRefreshing(true);
+    try {
+      const data = await refreshAccounts([]);
       await loadAccounts(true);
       if (data.errors.length > 0) {
         const firstError = data.errors[0]?.error;
@@ -385,8 +409,8 @@ function AccountsPageContent() {
           <Button
             variant="outline"
             className="h-10 rounded-xl border-stone-200 bg-white/80 px-4 text-stone-700 hover:bg-white"
-            onClick={() => void handleRefreshAccounts(allTokens)}
-            disabled={isLoading || isRefreshing || isDeleting || allTokens.length === 0}
+            onClick={() => void handleRefreshAllAccounts()}
+            disabled={isLoading || isRefreshing || isDeleting}
           >
             <RefreshCw className={cn("size-4", isRefreshing ? "animate-spin" : "")} />
             一键刷新所有账号信息和额度

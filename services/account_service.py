@@ -211,13 +211,8 @@ class AccountService:
         normalized_status = str(status or "all").strip() or "all"
         normalized_type = str(account_type or "all").strip() or "all"
 
-        with self._lock:
-            accounts = [dict(item) for item in self._accounts.values()]
-
-        filtered_accounts = [
-            account
-            for account in accounts
-            if (
+        def matches(account: dict[str, Any]) -> bool:
+            return (
                 (not normalized_query or str(account.get("email") or "").lower().find(normalized_query) >= 0)
                 and (normalized_status == "all" or str(account.get("status") or "") == normalized_status)
                 and (
@@ -226,34 +221,54 @@ class AccountService:
                     or str(account.get("type") or "Free") == normalized_type
                 )
             )
-        ]
-        total = len(filtered_accounts)
+
+        with self._lock:
+            stats = {
+                "total": len(self._accounts),
+                "active": 0,
+                "limited": 0,
+                "abnormal": 0,
+                "disabled": 0,
+                "quota": 0,
+            }
+            type_options: set[str] = set()
+            abnormal_tokens: list[str] = []
+            available_accounts: list[dict[str, Any]] = []
+            matched_accounts: list[dict[str, Any]] = []
+
+            for item in self._accounts.values():
+                status_value = str(item.get("status") or "")
+                if status_value == "正常":
+                    stats["active"] += 1
+                    available_accounts.append(item)
+                elif status_value == "限流":
+                    stats["limited"] += 1
+                elif status_value == "异常":
+                    stats["abnormal"] += 1
+                    token = str(item.get("access_token") or "")
+                    if token:
+                        abnormal_tokens.append(token)
+                elif status_value == "禁用":
+                    stats["disabled"] += 1
+
+                type_options.add(str(item.get("type") or "free"))
+
+                if matches(item):
+                    matched_accounts.append(dict(item))
+
+        stats["quota"] = self._format_quota_summary(available_accounts)
+        total = len(matched_accounts)
         start_index = (safe_page - 1) * safe_page_size
         end_index = start_index + safe_page_size
-        items = filtered_accounts[start_index:end_index]
-        stats = {
-            "total": len(accounts),
-            "active": sum(1 for item in accounts if item.get("status") == "正常"),
-            "limited": sum(1 for item in accounts if item.get("status") == "限流"),
-            "abnormal": sum(1 for item in accounts if item.get("status") == "异常"),
-            "disabled": sum(1 for item in accounts if item.get("status") == "禁用"),
-            "quota": self._format_quota_summary(accounts),
-        }
-        type_options = sorted({str(item.get("type") or "free") for item in accounts})
-        abnormal_tokens = [
-            str(item.get("access_token") or "")
-            for item in accounts
-            if item.get("status") == "异常" and str(item.get("access_token") or "")
-        ]
+        items = matched_accounts[start_index:end_index]
         return {
             "items": items,
             "total": total,
             "page": safe_page,
             "page_size": safe_page_size,
             "stats": stats,
-            "type_options": type_options,
+            "type_options": sorted(type_options),
             "abnormal_tokens": abnormal_tokens,
-            "all_tokens": [str(item.get("access_token") or "") for item in accounts if str(item.get("access_token") or "")],
         }
 
     def list_limited_tokens(self) -> list[str]:

@@ -42,7 +42,6 @@ type AccountListResponse = {
   stats: AccountListStats;
   type_options: string[];
   abnormal_tokens: string[];
-  all_tokens: string[];
 };
 
 type AccountMutationResponse = {
